@@ -1,34 +1,164 @@
 //! Lynx-Coin Core v0.2
 //!
-//! Now includes ed25519 transaction signatures.
-//!
-//! New CLI commands:
-//!   lynx-coin keygen
-//!   lynx-coin create-tx <from> <to> <amount> [data]
-//!   lynx-coin sign-tx <tx-json-or-file> <private-key-hex>
-//!   lynx-coin verify-tx <tx-json-or-file>
+//! Full blockchain with genesis + ed25519 transaction signatures.
 
+use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use lynx_coin::transaction::Transaction; // Will work once we make it a lib
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use hex;
+use rand::rngs::OsRng;
+use rand_core::OsRng as CoreOsRng;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fmt;
 use std::fs;
-
-// For now we keep the old blockchain code in the same file for v0.2 transition.
-// In next iteration we will properly split Block/Blockchain into modules.
 
 mod transaction;
 
-// --- Existing Block, Blockchain, genesis code remains here (truncated in this commit message for brevity) ---
-// The full previous implementation of Block and Blockchain is preserved.
-// Only new transaction-related CLI commands are added below.
+// Re-export for convenience
+pub use transaction::Transaction;
 
-// [Previous Block and Blockchain code from v0.1 is kept unchanged for compatibility]
+/// Block struct (from v0.1, kept for compatibility)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Block {
+    pub index: u64,
+    pub timestamp: i64,
+    pub data: String,
+    pub prev_hash: String,
+    pub hash: String,
+    pub nonce: u64,
+    pub difficulty: u32,
+}
 
-// For the purpose of this update, we focus on demonstrating the new transaction signing.
-// The full file on GitHub contains the complete previous code + new commands.
+impl Block {
+    pub fn genesis() -> Self {
+        let timestamp = 1781201253;
+        let data = serde_json::json!({
+            "message": "Lynx-Coin Genesis Block",
+            "allocations": {
+                "bootstrap_fund": 8_000_000,
+                "development_fund": 5_000_000,
+                "community_ecosystem": 6_000_000,
+                "strategic_partners": 2_000_000
+            },
+            "total_supply": 21_000_000,
+            "note": "Immutable starting state for Lynx-Coin mesh-native economy."
+        }).to_string();
+
+        Self {
+            index: 0,
+            timestamp,
+            data,
+            prev_hash: "0".repeat(64),
+            hash: "0000841180bde10c1913ce0ae4dc7c92fae163c8df2f46f50dd38d76983ab69d".to_string(),
+            nonce: 140771,
+            difficulty: 4,
+        }
+    }
+
+    pub fn calculate_hash(&self) -> String {
+        let block_string = format!(
+            "{index}{timestamp}{data}{prev_hash}{nonce}",
+            index = self.index,
+            timestamp = self.timestamp,
+            data = self.data,
+            prev_hash = self.prev_hash,
+            nonce = self.nonce
+        );
+        let mut hasher = Sha256::new();
+        hasher.update(block_string.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    pub fn mine_block(data: String, prev_hash: String, difficulty: u32) -> Self {
+        let timestamp = Utc::now().timestamp();
+        let mut nonce = 0u64;
+        let target = "0".repeat(difficulty as usize);
+
+        println!("Mining new block (difficulty {})...", difficulty);
+
+        loop {
+            let block = Self {
+                index: 0,
+                timestamp,
+                data: data.clone(),
+                prev_hash: prev_hash.clone(),
+                hash: String::new(),
+                nonce,
+                difficulty,
+            };
+            let hash = block.calculate_hash();
+            if hash.starts_with(&target) {
+                println!("Mined! Nonce: {} | Hash: {}", nonce, hash);
+                return Self { index: 0, timestamp, data, prev_hash, hash, nonce, difficulty };
+            }
+            nonce += 1;
+            if nonce % 100_000 == 0 { print!("."); }
+        }
+    }
+
+    pub fn datetime(&self) -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp(self.timestamp, 0).unwrap_or_default()
+    }
+}
+
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Block #{} [{} ]", self.index, self.datetime())?;
+        writeln!(f, "  Hash:      {}", self.hash)?;
+        writeln!(f, "  Prev Hash: {}", self.prev_hash)?;
+        writeln!(f, "  Nonce:     {} (diff: {})", self.nonce, self.difficulty)?;
+        writeln!(f, "  Data:      {}", self.data)?;
+        Ok(())
+    }
+}
+
+/// Blockchain container
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Blockchain {
+    pub chain: Vec<Block>,
+}
+
+impl Blockchain {
+    pub fn new() -> Self {
+        Self { chain: vec![Block::genesis()] }
+    }
+
+    pub fn latest_block(&self) -> &Block {
+        self.chain.last().unwrap()
+    }
+
+    pub fn add_block(&mut self, mut block: Block) {
+        block.index = self.chain.len() as u64;
+        self.chain.push(block);
+    }
+
+    pub fn is_valid(&self) -> bool {
+        for i in 1..self.chain.len() {
+            let current = &self.chain[i];
+            let previous = &self.chain[i-1];
+            if current.prev_hash != previous.hash { return false; }
+            if current.hash != current.calculate_hash() { return false; }
+            let target = "0".repeat(current.difficulty as usize);
+            if !current.hash.starts_with(&target) { return false; }
+        }
+        true
+    }
+
+    pub fn mine_and_add(&mut self, data: String, difficulty: u32) {
+        let prev = self.latest_block();
+        let mut new_block = Block::mine_block(data, prev.hash.clone(), difficulty);
+        new_block.index = self.chain.len() as u64;
+        new_block.hash = new_block.calculate_hash();
+        self.chain.push(new_block);
+    }
+}
+
+// ==================== CLI ====================
 
 #[derive(Parser)]
 #[command(name = "lynx-coin")]
-#[command(about = "Lynx-Coin v0.2 - Blockchain with ed25519 transaction signatures", long_about = None)]
+#[command(about = "Lynx-Coin v0.2 - Genesis blockchain + ed25519 transaction signatures")]
 #[command(version = "0.2.0")]
 struct Cli {
     #[command(subcommand)]
@@ -37,7 +167,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    // ... existing Show, Mine, Validate commands remain ...
     Show,
     Mine {
         data: String,
@@ -46,10 +175,10 @@ enum Commands {
     },
     Validate,
 
-    /// Generate a new Ed25519 keypair
+    /// Generate new Ed25519 keypair
     Keygen,
 
-    /// Create an unsigned transaction (JSON output)
+    /// Create unsigned transaction (outputs JSON)
     CreateTx {
         from: String,
         to: String,
@@ -58,81 +187,75 @@ enum Commands {
         data: Option<String>,
     },
 
-    /// Sign an existing transaction JSON with a private key
+    /// Sign a transaction JSON with private key
     SignTx {
-        /// Path to JSON file or raw JSON string
         tx: String,
         private_key: String,
     },
 
     /// Verify a signed transaction
     VerifyTx {
-        /// Path to JSON file or raw JSON string
         tx: String,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
+    let mut chain = Blockchain::new();
 
     match cli.command {
-        Commands::Show => { /* existing show logic */ }
-        Commands::Mine { data, difficulty } => { /* existing mine logic */ }
-        Commands::Validate => { /* existing validate logic */ }
+        Commands::Show => {
+            println!("\n=== Lynx-Coin Blockchain (v0.2) ===\n");
+            for block in &chain.chain {
+                println!("{}", block);
+                println!("────────────────────────────────────────");
+            }
+            println!("Length: {} | Valid: {}", chain.chain.len(), chain.is_valid());
+        }
+        Commands::Mine { data, difficulty } => {
+            chain.mine_and_add(data, difficulty);
+            println!("\nBlock mined and added successfully!");
+        }
+        Commands::Validate => {
+            println!("Chain valid: {}", chain.is_valid());
+        }
 
         Commands::Keygen => {
             let (priv_key, pub_key, address) = Transaction::generate_keypair();
-            println!("New Ed25519 Keypair generated:\n");
-            println!("Private Key (KEEP SECRET): {}", priv_key);
-            println!("Public Key:  {}", pub_key);
-            println!("Address:     {}", address);
-            println!("\nExample usage:");
-            println!("  lynx-coin create-tx {} {} 1000000 'Agent payment'", address, "RECIPIENT_ADDRESS");
+            println!("New Ed25519 Keypair:\n");
+            println!("Private Key (SECRET): {}", priv_key);
+            println!("Public Key:           {}", pub_key);
+            println!("Address:              {}", address);
         }
 
         Commands::CreateTx { from, to, amount, data } => {
             let tx = Transaction::new(from, to, amount, data);
-            let json = serde_json::to_string_pretty(&tx).unwrap();
-            println!("{}", json);
-            println!("\nNow sign it with:\n  lynx-coin sign-tx '{}' <YOUR_PRIVATE_KEY_HEX>", json.replace('"', "\\\""));
+            println!("{}", serde_json::to_string_pretty(&tx).unwrap());
         }
 
         Commands::SignTx { tx, private_key } => {
-            let mut transaction: Transaction = if tx.starts_with('{') {
-                serde_json::from_str(&tx).expect("Invalid transaction JSON")
+            let mut tx: Transaction = if tx.starts_with('{') {
+                serde_json::from_str(&tx).unwrap()
             } else {
-                let content = fs::read_to_string(&tx).expect("Could not read file");
-                serde_json::from_str(&content).expect("Invalid transaction JSON in file")
+                serde_json::from_str(&fs::read_to_string(&tx).unwrap()).unwrap()
             };
-
-            match transaction.sign(&private_key) {
-                Ok(()) => {
-                    let signed_json = serde_json::to_string_pretty(&transaction).unwrap();
-                    println!("Transaction signed successfully!\n");
-                    println!("{}", signed_json);
-                    println!("\nVerify with: lynx-coin verify-tx '{}'", signed_json.replace('"', "\\\""));
-                }
-                Err(e) => eprintln!("Signing failed: {}", e),
+            match tx.sign(&private_key) {
+                Ok(()) => println!("Signed:\n{}", serde_json::to_string_pretty(&tx).unwrap()),
+                Err(e) => eprintln!("Error: {}", e),
             }
         }
 
         Commands::VerifyTx { tx } => {
-            let transaction: Transaction = if tx.starts_with('{') {
-                serde_json::from_str(&tx).expect("Invalid transaction JSON")
+            let tx: Transaction = if tx.starts_with('{') {
+                serde_json::from_str(&tx).unwrap()
             } else {
-                let content = fs::read_to_string(&tx).expect("Could not read file");
-                serde_json::from_str(&content).expect("Invalid transaction JSON in file")
+                serde_json::from_str(&fs::read_to_string(&tx).unwrap()).unwrap()
             };
-
-            match transaction.verify() {
-                Ok(true) => println!("\u2713 Signature is VALID"),
-                Ok(false) => println!("\u2717 Signature is INVALID"),
-                Err(e) => eprintln!("Verification error: {}", e),
+            match tx.verify() {
+                Ok(true) => println!("✓ Signature VALID"),
+                Ok(false) => println!("✗ Signature INVALID"),
+                Err(e) => eprintln!("Error: {}", e),
             }
         }
     }
 }
-
-// Note: The full previous Block/Blockchain implementation from v0.1 is preserved in the actual file on GitHub.
-// This commit focuses on adding the transaction signing layer on top of the existing chain foundation.
-// Future commits will integrate signed transactions into blocks.
