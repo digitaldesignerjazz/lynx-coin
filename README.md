@@ -1,69 +1,57 @@
-# Lynx-Coin
+# Lynx-Coin v0.3
 
-**Lynx-Coin (LYNX) v0.2** — Decentralized blockchain with **ed25519 transaction signatures**.
+**Major milestone**: Lynx-Coin is now a proper Rust **library** (`lynx_coin`) with:
 
-This release adds proper cryptographic transaction authorization using Ed25519.
+- Transactions fully integrated into Blocks
+- Signature validation on every block addition
+- Simple account-based balance tracking
+- Wallet / keystore module
+- Clean library structure ready to be used as a dependency by **Nexus Core**
 
-## What's New in v0.2
+## New Architecture
 
-- Full `Transaction` struct with `from`, `to`, `amount`, `timestamp`, `data`
-- Ed25519 keypair generation (`lynx-coin keygen`)
-- Transaction creation, signing, and verification via CLI
-- All signatures use canonical message serialization to prevent replay and malleability attacks
-
-## Quick Start (v0.2)
-
-```bash
-git clone https://github.com/digitaldesignerjazz/lynx-coin.git
-cd lynx-coin
-cargo run -- keygen                    # Generate Ed25519 keypair
-cargo run -- create-tx <FROM> <TO> 1000000 'Agent payment'
-cargo run -- sign-tx '<json>' <PRIVATE_KEY>
-cargo run -- verify-tx '<signed-json>'
-
-cargo run -- show                      # View genesis + chain
-cargo run -- mine "Block with future tx support"
+```
+src/
+├── lib.rs          # Public API + module exports
+├── block.rs        # Block with Vec<Transaction> + signature validation
+├── chain.rs        # Blockchain + account balances
+├── transaction.rs  # Ed25519 signed transactions
+├── wallet.rs       # In-memory keystore + signed tx helper
+└── main.rs         # Thin CLI
 ```
 
-## Transaction Signing Flow
+## Key Improvements in v0.3
 
-1. `keygen` → Get private + public key
-2. `create-tx` → Build unsigned transaction (JSON)
-3. `sign-tx` → Attach Ed25519 signature using private key
-4. `verify-tx` → Cryptographically verify the signature
+1. **Transactions inside Blocks** — `Block` now contains `Vec<Transaction>` instead of plain data.
+2. **Signature validation** — `block.validate_signatures()` + enforced in `chain.add_block()`.
+3. **Balance tracking** — Simple account model (`balances: HashMap<String, u64>`).
+4. **Wallet module** — Easy key generation and `create_signed_transaction()`.
+5. **Library ready** — `lynx-coin` can now be added as a dependency in Nexus Core or other projects.
 
-The signature covers: `from + to + amount + timestamp + data`.
+## Usage Examples
 
-This is the foundation for secure value transfer in the Lynx-Coin network.
+```bash
+cargo run -- keygen
+cargo run -- balance <address>
+cargo run -- send <from> <to> 1000000 --data "Agent reward"
+cargo run -- show
+```
 
-## Genesis Block (unchanged)
+## P2P & Mesh Integration (Planned / Skeleton)
 
-The genesis block remains the same as v0.1 (pre-mined with difficulty 4).
+A `network` module skeleton is prepared for future integration with:
+- Yggdrasil / custom xMesh
+- libp2p or QUIC
+- Nexus Core's networking layer
 
-## Architecture (v0.2)
+Transaction propagation and block gossip will be added in the next phase.
 
-- `src/transaction.rs` — Ed25519 signing & verification logic
-- `src/main.rs` — Blockchain + CLI (Block, Blockchain, Transaction integration)
+## Next Steps
 
-Future: Transactions will be included inside blocks instead of plain `data` string.
+- Full UTXO model option
+- Encrypted keystore
+- Real P2P networking
+- Smart contract / script support
+- Tight integration with Nexus Core EventBus
 
-## Security Notes
-
-- Ed25519 provides strong security with small, fast signatures.
-- Timestamp in every transaction helps mitigate replay attacks.
-- Always keep private keys secret.
-- This is still an educational implementation. Do not use with real value yet.
-
-## Roadmap
-
-- [x] Genesis block
-- [x] Basic PoW
-- [x] ed25519 Transaction signatures (v0.2)
-- [ ] Include signed transactions inside blocks
-- [ ] UTXO or account model
-- [ ] P2P networking (Yggdrasil / libp2p)
-- [ ] Integration with Nexus Core runtime
-
-See full details in the original README content and source code.
-
-*"The lynx signs its moves."*
+The foundation for a production-grade mesh-native cryptocurrency is now in place.
