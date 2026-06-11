@@ -1,147 +1,69 @@
 # Lynx-Coin
 
-**Lynx-Coin (LYNX)** is a decentralized, mesh-native blockchain designed as the value and coordination layer for advanced distributed systems.
+**Lynx-Coin (LYNX) v0.2** — Decentralized blockchain with **ed25519 transaction signatures**.
 
-It begins with a carefully crafted **genesis block** and provides a clean, extensible Rust foundation for:
+This release adds proper cryptographic transaction authorization using Ed25519.
 
-- Agent economies and autonomous swarms
-- Mesh network incentives (NovaNet / QNET / xMesh integration)
-- Hardware oracles and IoT value transfer
-- Secure, auditable data anchoring
-- Future smart contract and DeFi primitives
+## What's New in v0.2
 
-This project is the starting point for Lynx-Coin as part of a broader ecosystem that includes Nexus Core (runtime orchestration), Grok Launcher-style tooling, and privacy-focused networking.
+- Full `Transaction` struct with `from`, `to`, `amount`, `timestamp`, `data`
+- Ed25519 keypair generation (`lynx-coin keygen`)
+- Transaction creation, signing, and verification via CLI
+- All signatures use canonical message serialization to prevent replay and malleability attacks
 
-## Vision
-
-Lynx-Coin is built for the next generation of decentralized infrastructure:
-
-- **Low-latency & high-throughput** where it matters (agent-to-agent micropayments, real-time mesh coordination)
-- **Self-sovereign & privacy-preserving** by default
-- **Interoperable** with existing mesh protocols and future L2s
-- **Developer-friendly** Rust implementation with clear extension points
-
-The genesis block establishes the initial token distribution and immutable starting state. All subsequent blocks are cryptographically linked and validated.
-
-## Genesis Block Specifications
-
-The genesis block (Block #0) was created with the following parameters:
-
-- **Index**: 0
-- **Timestamp**: 2026-06-11 (Unix timestamp embedded)
-- **Data**: JSON object containing initial allocation and network bootstrap message
-- **Previous Hash**: `0000000000000000000000000000000000000000000000000000000000000000`
-- **Difficulty**: 4 (hash must start with 4 leading zeros in hex for demonstration; easily adjustable)
-- **Nonce**: The value that satisfies the PoW for the genesis data
-
-**Initial Allocation (embedded in genesis data)**:
-- `bootstrap_fund`: 8_000_000 LYNX (network bootstrap, liquidity, incentives)
-- `development_fund`: 5_000_000 LYNX (core development, security audits, tooling)
-- `community_ecosystem`: 6_000_000 LYNX (airdrops, grants, agent swarm rewards)
-- `strategic_partners`: 2_000_000 LYNX (early mesh node operators, hardware partners)
-
-**Total Genesis Supply**: 21_000_000 LYNX (hard cap for initial phase; future emissions decided by governance)
-
-The genesis block is **pre-mined** and hardcoded. Its hash serves as the root of trust for the entire chain.
-
-## Quick Start
-
-### Prerequisites
-
-- Rust 1.75+ (recommended latest stable)
-- `cargo`
-
-### Build & Run
+## Quick Start (v0.2)
 
 ```bash
 git clone https://github.com/digitaldesignerjazz/lynx-coin.git
 cd lynx-coin
-cargo build --release
+cargo run -- keygen                    # Generate Ed25519 keypair
+cargo run -- create-tx <FROM> <TO> 1000000 'Agent payment'
+cargo run -- sign-tx '<json>' <PRIVATE_KEY>
+cargo run -- verify-tx '<signed-json>'
 
-# Show the genesis block and mine a few example blocks
-./target/release/lynx-coin
-
-# Mine a new block with custom data
-./target/release/lynx-coin mine "Agent swarm reward distribution - Q3 2026"
-
-# View the full chain
-./target/release/lynx-coin show
+cargo run -- show                      # View genesis + chain
+cargo run -- mine "Block with future tx support"
 ```
 
-## Architecture
+## Transaction Signing Flow
 
-```
-Block
-  ├── index: u64
-  ├── timestamp: i64
-  ├── data: String (or structured JSON)
-  ├── prev_hash: String (64 hex chars)
-  ├── hash: String
-  ├── nonce: u64
-  └── difficulty: u32
+1. `keygen` → Get private + public key
+2. `create-tx` → Build unsigned transaction (JSON)
+3. `sign-tx` → Attach Ed25519 signature using private key
+4. `verify-tx` → Cryptographically verify the signature
 
-Blockchain
-  └── vec of validated Blocks
-  └── validate_chain()
-  └── add_block()
-  └── mine_block(data)
-```
+The signature covers: `from + to + amount + timestamp + data`.
 
-**Core Components** (in `src/main.rs` for v0.1 simplicity):
+This is the foundation for secure value transfer in the Lynx-Coin network.
 
-- `Block` struct with SHA-256 hashing
-- Proof-of-Work mining loop (simple but educational; production would use more sophisticated consensus)
-- `Blockchain` container with validation
-- CLI via `clap` for `show`, `mine`, and future commands
+## Genesis Block (unchanged)
 
-Future modules (separate crates or features):
-- Transaction pool & mempool
-- P2P networking (libp2p or direct Yggdrasil integration)
-- Account model or UTXO
-- Smart contracts (or Move / WASM)
-- Light client & SPV proofs
-- Integration with **Nexus Core** runtime for agent orchestration and mesh supervision
+The genesis block remains the same as v0.1 (pre-mined with difficulty 4).
 
-## Design Decisions & Trade-offs
+## Architecture (v0.2)
 
-| Aspect              | Choice                          | Rationale / Trade-off                          |
-|---------------------|---------------------------------|------------------------------------------------|
-| Hashing             | SHA-256                         | Battle-tested, widely supported. Future: BLAKE3 or Poseidon for ZK |
-| Consensus (v0.1)    | Simple PoW                      | Educational clarity. Easy to understand & modify. Later: PoS, PoA, or hybrid |
-| Data field          | String / JSON                   | Flexible for arbitrary payloads (agent messages, oracle data, etc.) |
-| Difficulty          | Adjustable leading zeros        | Easy to tune for demo vs production            |
-| No real transactions yet | Simple data string         | Focus on chain integrity first. Transactions come next |
+- `src/transaction.rs` — Ed25519 signing & verification logic
+- `src/main.rs` — Blockchain + CLI (Block, Blockchain, Transaction integration)
 
-**Why Rust?** Memory safety + fearless concurrency = ideal for a core blockchain node that may later run alongside Nexus Core agents and mesh networking stacks.
+Future: Transactions will be included inside blocks instead of plain `data` string.
+
+## Security Notes
+
+- Ed25519 provides strong security with small, fast signatures.
+- Timestamp in every transaction helps mitigate replay attacks.
+- Always keep private keys secret.
+- This is still an educational implementation. Do not use with real value yet.
 
 ## Roadmap
 
-- [x] Genesis block + basic PoW chain
-- [ ] Proper Transaction struct + signature verification (ed25519)
-- [ ] Mempool and block production
-- [ ] P2P layer (start with Yggdrasil or QUIC)
-- [ ] Wallet CLI / key management
-- [ ] Integration hooks for Nexus Core (event bus, agent spawning on chain events)
-- [ ] Explorer / dashboard (egui or web)
-- [ ] Testnet launch with real mesh node incentives
-- [ ] Governance module (on-chain proposals)
-- [ ] ZK or privacy features (future)
+- [x] Genesis block
+- [x] Basic PoW
+- [x] ed25519 Transaction signatures (v0.2)
+- [ ] Include signed transactions inside blocks
+- [ ] UTXO or account model
+- [ ] P2P networking (Yggdrasil / libp2p)
+- [ ] Integration with Nexus Core runtime
 
-## Contributing
+See full details in the original README content and source code.
 
-This is the genesis of Lynx-Coin. Pull requests that improve the chain logic, add transactions, or integrate with mesh/AI components are highly encouraged.
-
-Open issues for:
-- Better difficulty adjustment algorithm
-- Persistent storage (sled/redb)
-- Network protocol
-
-## License
-
-MIT License. See LICENSE file.
-
----
-
-*"The lynx moves silently through the mesh — fast, aware, and sovereign."*
-
-**Built as part of the NovaNet / QNET vision.**
+*"The lynx signs its moves."*
