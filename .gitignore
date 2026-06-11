@@ -1,0 +1,22 @@
+# Rust
+/target
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Blockchain specific
+*.db
+chain_data/
+logs/
+
+# Secrets (never commit)
+.env
+*.pem
+keys/
